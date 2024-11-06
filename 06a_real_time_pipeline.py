@@ -50,7 +50,7 @@ class ExchangeWarner:
             truncation=True, max_length=128
         )
         self._cache: dict[str, deque[str]] = {}  # channel, exchange cache
-        self.channels = self._load_channels()
+        self.channels = self._load_channels() + self._load_channels(path='data/internal/resources/discovered_channels.txt')
         self.subscribe = subscribe
 
     async def start(self) -> None:
@@ -168,7 +168,7 @@ class ExchangeWarner:
         match = re.search(r'(\w+)(?=_(?:CEX|DEX))', message)
         return match.group(1) if match else None
 
-    def _load_channels(self, path: str = 'data/internal/resources/pump_channels.txt') -> list[str]:
+    def _load_channels(self, path: str = 'data/internal/resources/seed_channels.txt') -> list[str]:
         """
         Loads a list of known pump channels from a file.
 
@@ -226,5 +226,5 @@ class ExchangeWarner:
         return None
 
 if __name__ == '__main__':
-    warner = ExchangeWarner(API_ID, API_KEY, get_env_values('PHONE_NUMBER'))
+    warner = ExchangeWarner(API_ID, API_KEY, get_env_values('PHONE_NUMBER'), subscribe=True)
     asyncio.run(warner.start())

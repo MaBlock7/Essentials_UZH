@@ -3,19 +3,15 @@ import re
 import asyncio
 import torch
 from pathlib import Path
-from collections import deque
+from datasets import Dataset
+from telethon import TelegramClient
 from telethon.errors import FloodWaitError
 from telethon.tl.functions.messages import GetHistoryRequest
-
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from torch.utils.data import DataLoader
-from transformers import DataCollatorWithPadding
-
-from train_bertweet import MessagesDataset
-import message_scraping
+from transformers import pipeline
+from message_scraping.scraping import parse_history
 
 
-class SnowballSearch():
+class SnowballSearch:
     """
     A class to perform snowball search for identifying potential pump channels on Telegram.
 
@@ -24,11 +20,11 @@ class SnowballSearch():
     and Telethon for message scraping.
 
     Attributes:
+        client (TelegramClient): A Telethon client instance for interacting with Telegram.
         max_snowball_depth (int): The maximum depth of recursive search for new channels.
         threshold_pump_channel (float): The threshold proportion of pump messages needed to classify a channel as a pump channel.
         known_pump_channels_dir (str): Path to the file containing known pump channels.
         new_channels_dir (str): Path to the directory where newly discovered pump channels are saved.
-        client (TelegramClient): A Telethon client instance for interacting with Telegram.
 
     Methods:
         extract_channel_links(message_text):
@@ -43,22 +39,29 @@ class SnowballSearch():
         fetch_channel_messages(channel_name, total_count_limit=100):
             Asynchronously fetches messages from a specified Telegram channel up to a specified limit.
     """
-    def __init__(self, max_snowball_depth, threshold_pump_channel, known_pump_channels_dir, new_channels_dir):
-        self.client = message_scraping.client
+    def __init__(
+        self,
+        client: TelegramClient,
+        max_snowball_depth: int,
+        threshold_pump_channel: float,
+        known_pump_channels_dir: str,
+        new_channels_dir: str
+    ):
+        self.client = client
         self.max_snowball_depth = max_snowball_depth
         self.threshold_pump_channel = threshold_pump_channel
         self.known_pump_channels_dir = known_pump_channels_dir
         self.new_channels_dir = new_channels_dir
-
-        self.tokenizer = AutoTokenizer.from_pretrained('vinai/bertweet-base', use_fast=False)
-        self.model = AutoModelForSequenceClassification.from_pretrained(
-            './models/bertweet_final',
-            num_labels=6
+        self.classifier = pipeline(
+            'text-classification',
+            model='./models/pump_bertweet',
+            tokenizer='vinai/bertweet-base',
+            device=0 if torch.cuda.is_available() else None,
+            truncation=True, max_length=128
         )
-        self.model.eval()
 
 
-    def extract_channel_links(self, message_text):
+    def extract_channel_links(self, message_text: str) -> list[str]:
         """
         Extracts Telegram channel links from a message.
 
@@ -68,22 +71,19 @@ class SnowballSearch():
         Returns:
             list[str]: A list of extracted channel usernames or IDs.
         """
-        channel_links = []
-
         patterns = [
             r"(?:https?://)?t\.me/([\w_]+)",           # t.me/channel_name
             r"(?:https?://)?telegram\.me/([\w_]+)",    # telegram.me/channel_name
             r"@([\w_]+)",                              # @channel_name
         ]
-
+        channel_links = []
         for pattern in patterns:
             matches = re.findall(pattern, message_text)
             channel_links.extend(matches)
-
         return channel_links
 
 
-    async def determine_if_pump_channel(self, messages):
+    async def determine_if_pump_channel(self, messages: list[str]):
         """
         Determines if a Telegram channel is likely to be a pump channel based on message classifications.
 
@@ -93,25 +93,15 @@ class SnowballSearch():
         Returns:
             bool: True if the proportion of non-garbage classified messages (i.e., excluding class 5) 
                 meets or exceeds the threshold for being a pump channel; otherwise, False.
-  
+
         Raises:
             Exception: If an issue occurs during message classification (e.g., rate limit issues or device errors).
         """
-        dummy_labels = [0] * len(messages)
-        dataset = MessagesDataset(texts=messages, labels=dummy_labels, tokenizer=self.tokenizer, max_len=128)
-        data_collator = DataCollatorWithPadding(tokenizer=self.tokenizer)
-        dataloader = DataLoader(dataset, batch_size=16, collate_fn=data_collator)
-
-        predictions = []
-        with torch.no_grad():
-            for batch in dataloader:
-                inputs = {k: v.to(self.model.device) for k, v in batch.items()}
-                outputs = self.model(**inputs)
-                logits = outputs.logits
-                batch_predictions = torch.argmax(logits, dim=-1).cpu().numpy()
-                predictions.extend(batch_predictions)
-
-        pump_proportion = (len(predictions) - predictions.count(5)) / len(predictions)
+        dataset = Dataset.from_dict({"text": messages})
+        predictions = self.classifier(dataset["text"], batch_size=16, truncation=True, max_length=128)
+        predicted_labels = [int(pred['label']) for pred in predictions]
+        pump_proportion = (len(predicted_labels) - predicted_labels.count(5)) / len(predicted_labels)
+        logging.info(f"Proportion of pump messages is {pump_proportion}")
         return pump_proportion > self.threshold_pump_channel
 
 
@@ -133,13 +123,13 @@ class SnowballSearch():
         return channels
 
 
-    async def fetch_channel_messages(self, channel_name, total_count_limit: int = 100): ### INCREASE total_count_limit!
+    async def fetch_channel_messages(self, channel_name: str, total_count_limit: int = 10_000):
         """
         Fetches messages from a specified Telegram channel up to a specified limit.
 
         Args:
             channel_name (str): The name or ID of the Telegram channel.
-            total_count_limit (int, optional): The maximum number of messages to fetch. Defaults to 100.
+            total_count_limit (int, optional): The maximum number of messages to fetch. Defaults to 10,000.
 
         Returns:
             list[str]: A list of message contents fetched from the channel.
@@ -173,7 +163,7 @@ class SnowballSearch():
                 logging.error(f"Error fetching messages from {getattr(channel_name, 'username', 'unknown')} : {e}")
                 break
 
-            parsed_history = await message_scraping.parse_history(history)
+            parsed_history = await parse_history(self.client, history)
 
             if not parsed_history:
                 break
@@ -189,77 +179,3 @@ class SnowballSearch():
                 break
 
         return all_messages
-
-
-async def main(S):
-    known_pump_channels = S.load_known_pump_channels()
-
-    visited_channels = set()
-    pump_channels = set(known_pump_channels)
-    queue = deque()
-    max_depth = S.max_snowball_depth
-
-    for channel in known_pump_channels:
-        queue.append((channel, 0))
-
-    while queue:
-        current_channel, depth = queue.popleft()
-
-        if depth > max_depth:
-            continue
-
-        if current_channel in visited_channels:
-            continue
-
-        visited_channels.add(current_channel)
-
-        logging.info(f"Processing channel: {current_channel} at depth: {depth}")
-
-        try:
-            channel_entity = await S.client.get_entity(current_channel)
-        except Exception as e:
-            logging.error(f"Failed to get entity for channel {current_channel}: {e}")
-            continue
-
-        # Fetch messages from the channel
-        messages = await S.fetch_channel_messages(channel_entity)
-
-        if not messages:
-            logging.warning(f"No messages found in channel {current_channel}")
-            continue
-
-        # Classify the channel and add it to pump_channels if classified as pump channel
-        if current_channel not in known_pump_channels:
-            is_pump_channel = await S.determine_if_pump_channel(messages)
-            if is_pump_channel:
-                logging.info(f"{"\u2705"} Channel {current_channel} classified as pump channel.")
-                pump_channels.add(current_channel)
-                with open(Path(S.new_channels_dir) / 'discovered_pump_channels.txt', 'a') as f:
-                    f.write(f"https://t.me/{current_channel}\n")
-            else:
-                logging.info(f"{"\u274C"} Channel {current_channel} is not a pump channel.")
-
-        # Extract channel links from messages
-        new_channels = set()
-        for msg in messages:
-            links = S.extract_channel_links(msg)
-            new_channels.update(links)
-
-        # Add new channels to the queue
-        for new_channel in new_channels:
-            if new_channel not in visited_channels:
-                queue.append((new_channel, depth + 1))
-
-    logging.info(f"Found {len(pump_channels)} pump channels.")
-
-
-if __name__ == '__main__':
-    S = SnowballSearch(
-        max_snowball_depth=2,
-        threshold_pump_channel=0.3,
-        known_pump_channels_dir='data/internal/resources/pump_channels.txt',
-        new_channels_dir='data/internal/resources/discovered_channels'
-    )
-
-    with S.client:
-        S.client.loop.run_until_complete(main(S=S))

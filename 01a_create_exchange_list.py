@@ -6,7 +6,7 @@ from tqdm import tqdm
 from utils.proxies import PROXIES
 
 # Define global paths
-DATA_DIR = Path('./data/resources')
+DATA_DIR = Path('./data/internal/resources')
 
 
 def test_and_filter_proxies(proxies, test_url='https://www.google.com', timeout=1.5):

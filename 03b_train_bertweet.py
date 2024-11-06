@@ -1,14 +1,11 @@
 import numpy as np
 import pandas as pd
-
 from sklearn.model_selection import train_test_split
 from sklearn.utils.class_weight import compute_class_weight
 from sklearn.metrics import precision_score, recall_score, f1_score
-
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
-
 from transformers import (AutoTokenizer, AutoModelForSequenceClassification,
                           DataCollatorWithPadding, TrainingArguments, Trainer,
                           EarlyStoppingCallback)
@@ -20,8 +17,10 @@ def prevent_data_slippage(train_df, test_df, col_name='message'):
     print(f'Removed {original_len - len(test_df)} entries from the test set!')
     return train_df, test_df
 
+
 def tokenize_data(texts, tokenizer, max_len):
     return tokenizer(texts, truncation=True, padding=True, max_length=max_len)
+
 
 class MessagesDataset(Dataset):
     def __init__(self, texts, labels, tokenizer, max_len):
@@ -35,6 +34,7 @@ class MessagesDataset(Dataset):
         item = {key: torch.tensor(val[idx]) for key, val in self.encodings.items()}
         item['labels'] = torch.tensor(self.labels[idx], dtype=torch.long)
         return item
+
 
 class WeightedLossTrainer(Trainer):
     def __init__(self, *args, class_weights=None, **kwargs):
@@ -61,6 +61,7 @@ class WeightedLossTrainer(Trainer):
 
         return (loss, outputs) if return_outputs else loss
 
+
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
     predictions = np.argmax(logits, axis=1)
@@ -74,6 +75,7 @@ def compute_metrics(eval_pred):
         'precision': precision,
         'recall': recall,
     }
+
 
 def main():
     # Seed for reproducibility
