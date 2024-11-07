@@ -99,7 +99,7 @@ class SnowballSearch:
         """
         dataset = Dataset.from_dict({"text": messages})
         predictions = self.classifier(dataset["text"], batch_size=16, truncation=True, max_length=128)
-        predicted_labels = [int(pred['label']) for pred in predictions]
+        predicted_labels = [int(pred['label'].replace('LABEL_', '')) for pred in predictions]
         pump_proportion = (len(predicted_labels) - predicted_labels.count(5)) / len(predicted_labels)
         logging.info(f"Proportion of pump messages is {pump_proportion}")
         return pump_proportion > self.threshold_pump_channel

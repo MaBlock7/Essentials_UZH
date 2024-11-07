@@ -68,8 +68,10 @@ async def main(search: SnowballSearch):
                 if is_pump_channel:
                     logging.info(f"{"\u2705"} Channel {current_channel} ({channel_entity.id}) classified as pump channel.")
                     new_pump_channels.add(current_channel)
-                    with open(Path(search.new_channels_dir), 'a') as f:
-                        f.write(f"https://t.me/{current_channel}\n")
+                    discovered_file = Path(search.new_channels_dir)
+                    if f"https://t.me/{current_channel}\n" not in discovered_file.read_text():
+                        with open(discovered_file, 'a') as f:
+                            f.write(f"https://t.me/{current_channel}\n")
                 else:
                     logging.info(f"{"\u274C"} Channel {current_channel} is not a pump channel.")
 
