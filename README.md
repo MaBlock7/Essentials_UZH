@@ -17,36 +17,57 @@ We apply various models and techniques to achieve accurate message classificatio
 
 To facilitate timely alerts, we also develop a **real-time pipeline** where exchanges can subscribe to receive warning notifications as they happen. For more details on subscription, see [this link](https://t.me/EssentialsWarningChannel).
 
+### Setup
+
+1. Create environment and install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+2. Create .env and provide the necessary credentials. If there is no .env file, one will be automatically created from a template.
 
 ### Directory Structure
 
 #### Folders
 
 - **channel_discovery/**
-  - 
+  - Contains the code for the SnowballSearch.
 
 - **data/**
-  - 
+  - **./external**: Data from Hu et al. (2023), manually labeled by us.
+  - **./internal**: Data either scraped of created by us.
 
 - **preprocessing/**
-  - 
+  - Contains the code for the Telegram message preprocessing.
 
 - **utils/**
-  - 
+  - Contains various helper functions such as the API key management or the proxy set up for scraping.
 
 ### Files
 
 #### 01a_create_exchange_list.py
-
+Python script to fetch a list of crypto exchange names. The list is later used in the preprocessing of the Telegram messages to tag exchange names with special tokens (_CEX or _DEX).
 
 #### 01b_message_scraping.py
+Python script to scrape the complete message history for a given list of P&D channels. The scraped messages are stored under 'data/internal/raw'. If run multiple times, it only updates the existing files with new messages instead of scraping the complete history again.
 
+```bash
+python 01b_message_scraping.py
+```
 
 #### 01c_message_preprocessing.py
+Python script applying the preprocessing to the scraped messages. Contains various methods of text normalization to harmonize messages across different channels.
 
+```bash
+python 01c_message_preprocessing.py
+```
+
+- **StandardNormalizer Class**  
+  A class containing all text processing steps, already initialized with a list of exchanges and regex patterns. Uses the TweetTokenizer from nltk.
 
 #### 01d_combine_training_data.ipynb
-
+Jupyther notebook which was used to combine all manually labeled and synthetically created data sources into one training set later used to train and evaluate various language models.
 
 #### 02a_heuristic_baseline_model.ipynb
 This Jupyter notebook implements a heuristic-based baseline model to classify the messages.
@@ -57,8 +78,20 @@ This Jupyter notebook implements an embedding-based model to classify the messag
 
 
 #### 03a_k_fold_evaluation.py
+This Python script containes the code to perform the fine-tuning of the four models tested (DistilBERT, BERT-base, BERTweet, and RoBERTa) in a k-fold cross validation to robustly compare the performance. Requires access to a GPU.
+
+Depending on the GPU, the script will run for several hours. To ensure that it runs continuously it should be run with nohup:
+
+```bash
+nohup python 03a_k_fold_evaluation.py &
+```
 
 #### 03b_train_bertweet.py
+This Python script was used to fine-tune the best-performing model found in 03a (BERTweet) and perform hyperparameter tuning.
+
+```bash
+nohup python 03b_train_bertweet.py &
+```
 
 #### 04a_gpt4o_zeroshot.ipynb
 This Jupyter notebook classifies the messages using the OpenAI API. The classification is conducted zero-shot.
@@ -74,7 +107,11 @@ This Jupyter notebook classifies the messages using the OpenAI API. The classifi
 
 #### 05a_real_time_pipeline.py
 
-This script sets up a real-time pipeline to monitor Telegram channels for pump-and-dump messages and send notifications to exchanges.
+This script sets up a real-time pipeline to monitor Telegram channels for pump-and-dump messages and send notifications to exchanges. When run, the script currently automatically subscribes the given number in the .env file to all monitored Telegram channels since this is a requirement for the event listener to work. Use with care!
+
+```bash
+nohup python 05a_real_time_pipeline.py &
+```
 
 - **ExchangeWarner Class**  
   A class to monitor specified Telegram channels for messages related to cryptocurrency pumps, using a classifier model to identify key message types (e.g., pump announcements, coin releases, cancellations).
