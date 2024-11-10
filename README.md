@@ -105,7 +105,11 @@ This Jupyter notebook classifies the messages using the OpenAI API. The classifi
 This Jupyter notebook classifies the messages using the OpenAI API. The classification is conducted by providing a few real-world examples for each distinct class.
 
 
-#### 05a_real_time_pipeline.py
+#### 05a_snowball_search.py
+This script recursively explores links in Telegram messages to discover new pump channels. It classifies channels as pump-related if pump messages exceed a certain configurable threshold. Newly discovered channels are added to a list to expand the search network and avoid duplicate searches.
+
+
+#### 06a_real_time_pipeline.py
 
 This script sets up a real-time pipeline to monitor Telegram channels for pump-and-dump messages and send notifications to exchanges. When run, the script currently automatically subscribes the given number in the .env file to all monitored Telegram channels since this is a requirement for the event listener to work. Use with care!
 
